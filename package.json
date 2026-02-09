@@ -1,0 +1,51 @@
+{
+  "name": "cloud-native-project-one",
+  "version": "1.0.0",
+  "description": "IoT Temperature Monitoring System for Refrigerated Cargo Ships",
+  "type": "module",
+  "scripts": {
+    "setup": "npm run setup:queue && npm run setup:db && npm run setup:cache",
+    "setup:queue": "node scripts/sqs-queue-setup.js",
+    "setup:db": "node scripts/db-setup.js",
+    "setup:cache": "node scripts/cache-setup.js",
+    "start:ingestor": "cd ingestor && node ingestor.js",
+    "start:worker": "cd worker && node worker.js",
+    "start:executor": "cd executor && node executor.js",
+    "start:simulator": "node simulator/simulator.js",
+    "docker:up": "docker-compose -f simulator/docker-compose.yml up -d",
+    "docker:down": "docker-compose -f simulator/docker-compose.yml down",
+    "docker:logs": "docker-compose -f simulator/docker-compose.yml logs -f",
+    "docker:restart": "docker-compose -f simulator/docker-compose.yml restart",
+    "pm2:start": "pm2 start deploy/pm2-ecosystem.config.js",
+    "pm2:stop": "pm2 stop deploy/pm2-ecosystem.config.js",
+    "pm2:restart": "pm2 restart deploy/pm2-ecosystem.config.js",
+    "pm2:logs": "pm2 logs",
+    "pm2:status": "pm2 status",
+    "aws:setup": "npm run setup:db && npm run setup:cache",
+    "aws:deploy": "npm run pm2:start && pm2 save",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/duynh5/cloud-native-project-one.git"
+  },
+  "keywords": [
+    "iot",
+    "cloud-native",
+    "microservices",
+    "temperature-monitoring",
+    "distributed-systems"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/duynh5/cloud-native-project-one/issues"
+  },
+  "homepage": "https://github.com/duynh5/cloud-native-project-one#readme",
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.985.0",
+    "dotenv": "^17.2.4",
+    "pg": "^8.18.0",
+    "redis": "^5.10.0"
+  }
+}

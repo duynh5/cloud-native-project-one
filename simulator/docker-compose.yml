@@ -1,0 +1,37 @@
+services:
+  # 1. Fake SQS (LocalStack)
+  localstack:
+    container_name: localstack_main
+    image: localstack/localstack
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      - SERVICES=sqs
+    networks:
+      - ship-network
+
+  # 2. Fake RDS (Postgres)
+  database:
+    container_name: postgres_db
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ship_db
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - ship-network
+
+  # 3. Fake ElastiCache (Redis)
+  cache:
+    container_name: redis_cache
+    image: redis:alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - ship-network
+
+networks:
+  ship-network:
+    driver: bridge

@@ -1,0 +1,44 @@
+# Files and directories that should NOT be deployed to AWS EC2
+# This is for documentation purposes - use this when deploying manually
+
+# Documentation (not needed on server)
+docs/
+
+# Version control
+.git/
+.gitignore
+
+# Dependencies (will be reinstalled on AWS)
+node_modules/
+ingestor/node_modules/
+worker/node_modules/
+executor/node_modules/
+
+# Local environment files
+.env
+.env.development.example
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs (generated on server)
+logs/
+*.log
+npm-debug.log*
+
+# Test files
+test/
+*.test.js
+*.spec.js
+
+# Build artifacts (if any)
+dist/
+build/
+
+# Temporary files
+tmp/
+temp/

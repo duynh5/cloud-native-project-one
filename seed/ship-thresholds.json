@@ -1,0 +1,33 @@
+{
+  "ships": [
+    {
+      "ship_id": "ship_1",
+      "thresholds": {
+        "warning": -10,
+        "critical": -5,
+        "target": -18
+      }
+    },
+    {
+      "ship_id": "ship_2",
+      "thresholds": {
+        "warning": -8,
+        "critical": -3,
+        "target": -15
+      }
+    },
+    {
+      "ship_id": "ship_3",
+      "thresholds": {
+        "warning": -12,
+        "critical": -7,
+        "target": -20
+      }
+    }
+  ],
+  "defaults": {
+    "warning": -10,
+    "critical": -5,
+    "target": -18
+  }
+}

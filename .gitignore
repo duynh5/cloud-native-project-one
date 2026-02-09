@@ -1,0 +1,27 @@
+# dependencies
+/node_modules
+node_modules
+
+# testing
+/coverage
+
+# production
+/build
+build
+
+# local env file
+.env
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+
+logs
+.vscode
+/.vscode
+
+# webstorm
+.idea
