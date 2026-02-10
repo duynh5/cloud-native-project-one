@@ -139,7 +139,7 @@ TREND_WINDOW_MINUTES=5
 ```bash
 npm run setup:db
 npm run setup:cache
-pm2 start deploy/pm2-ecosystem.config.js
+pm2 start deploy/pm2-ecosystem.config.cjs
 pm2 save
 pm2 startup   # follow printed instructions
 ```
