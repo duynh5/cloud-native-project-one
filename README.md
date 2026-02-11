@@ -38,9 +38,9 @@ npm run docker:up
 npm run setup
 
 # 4. Run each in a separate terminal:
-npm run start:ingestor    # Terminal 1 — HTTP server on port 3000
-npm run start:worker      # Terminal 2 — Polls SQS, evaluates business rules
-npm run start:executor    # Terminal 3 — Stores data, sends notifications
+npm run start:ingestor    # Terminal 1: HTTP server on port 3000
+npm run start:worker      # Terminal 2: Polls SQS, evaluates business rules
+npm run start:executor    # Terminal 3: Stores data, sends notifications
 
 # 5. Start the IoT simulator
 npm run start:simulator   # Sends fake sensor data every 10 seconds
@@ -70,7 +70,7 @@ cloud-native-project-one/
 
 ## AWS Migration Guide
 
-The application does not require any code changes to run on AWS, only the `.env` file changes. See the [AWS Migration Guide](docs/AWS_MIGRATION_GUIDE.md) for step-by-step instructions.
+The application does not require any code changes to run on AWS, only the `.env` file changes.
 
 ## Other Documentation
 

@@ -4,13 +4,13 @@
 
 **Course**: EN.605.702.81.SP26 Cloud-native Architecture and Microservices
 
-**Project**: Individual Project Part, Project One
+**Project**: Individual Project Part One
+
+**Name**: Duy Nguyen
 
 **Date**: 11 February 2026
 
----
-
-## Executive Summary
+## I. Executive Summary
 
 This project implements a cloud-based IoT temperature monitoring and regulation system for refrigerated seafood transportation cargo ships. The system demonstrates cloud computing concepts through two distinct deployment architectures (the third is not implemented due to constraints of the project), each showcasing different levels of distributed system complexity and cloud service integration. The project was designed and deployed as a distributed application using **4 core cloud components**:
 
@@ -19,9 +19,7 @@ This project implements a cloud-based IoT temperature monitoring and regulation 
 3. **Database**: Amazon RDS (PostgreSQL)
 4. **Compute**: Amazon EC2
 
----
-
-## Problem Statement and Business Value, restated
+## II. Problem Statement and Business Value, restated
 
 Seafood transportation companies rely heavily on refrigerated cargo storage to maintain product quality and comply with strict food safety regulations across international markets. During long trips, shipments often pass through varying climate zones where temperatures can change rapidly, with fluctuating environmental conditions, some harsh and unpredictable.
 
@@ -35,11 +33,9 @@ A cloud-based architecture would enable the system to:
 - Manage ships as part of a centralized fleet, allowing coordinated manual temperature overrides and oversight across multiple vessels
 - Maintain accurate, continuously updated records to support regulatory compliance, auditing, and legal reporting requirements.
 
----
+## III. System Architecture
 
-## System Architecture
-
-### Three-Component Design
+### a. Three-Component Design
 
 #### Component A: IoT Data Ingestion Service
 
@@ -73,14 +69,14 @@ A cloud-based architecture would enable the system to:
   - Store trend anomaly alerts when received from Component B
   - Send webhook notifications
 
-### Architecture Diagrams
+### b. Architecture Diagrams
 
 #### Local Development
 
 ```text
                 Your Computer (localhost) + Docker + LocalStack
 
-Simulator ──HTTP POST──▶   Ingestor (:3000)
+Simulator ──HTTP POST──>   Ingestor (:3000)
                               │
                         TelemetryQueue (SQS) (:4566)
                               │
@@ -97,7 +93,7 @@ Simulator ──HTTP POST──▶   Ingestor (:3000)
 ```text
                   1 single EC2 Instance (t3.micro, PM2)
 
-Simulator ──HTTP POST──▶   Ingestor (:3000)
+Simulator ──HTTP POST──>   Ingestor (:3000)
                               │
                         TelemetryQueue (SQS)
                               │
@@ -112,7 +108,7 @@ Simulator ──HTTP POST──▶   Ingestor (:3000)
 #### AWS Distributed (Implementation 2)
 
 ```text
-Simulator ──HTTP POST──▶ EC2 Ingestor (:3000)
+Simulator ──HTTP POST──> EC2 Ingestor (:3000)
                               │
                         TelemetryQueue (SQS)
                               │
@@ -124,24 +120,24 @@ Simulator ──HTTP POST──▶ EC2 Ingestor (:3000)
                         EC2 Executor ── RDS (PostgreSQL) (storage)
 ```
 
-### Data Flow
+### c. Data Flow
 
 ```text
 Ingestor (Component A)
   POST /telemetry → validate → normalize → queue to SQS → return 200
        │
-       ▼
+       v
   TelemetryQueue (SQS)
        │
-       ▼
+       v
 Worker (Component B)
   Poll SQS → get thresholds (Redis) → evaluate rules → publish event to SQS
-  Check temperature trend (PostgreSQL) → if rising → publish TREND_ANOMALY
+  Check temperature trend (PostgreSQL) → if rising → publish TREND_ANOMALY alert
        │
-       ▼
+       v
   EventsQueue (SQS)
        │
-       ▼
+       v
 Executor (Component C)
   Poll SQS → loop over evaluation.actions:
     LOG → store telemetry (PostgreSQL)
@@ -151,142 +147,47 @@ Executor (Component C)
     TREND_ALERT → store alert
 ```
 
-### Component Interaction Analysis
+### d. Component Interaction Analysis
 
-The three components never communicate directly — every interaction passes through an AWS managed service (SQS, Redis, or PostgreSQL). This design has measurable consequences for scalability, performance, and efficiency.
+As can be seen from the data flow and the architecture diagrams, the three components never communicate directly, but instead every interaction has at least one or more AWS managed services served as middlemen (SQS, Redis, or PostgreSQL). This design improves considerably scalability, performance, and efficiency.
 
-#### SQS as the Decoupling Layer (A→B, B→C)
+#### SQS as the Decoupling Layer (A -> B, B -> C)
 
-Two SQS queues form the backbone of the pipeline. Because the Ingestor writes to TelemetryQueue and the Worker reads from it independently, neither component needs to know the other exists. This means:
+Two SQS queues form the backbone of the pipeline. Because the Ingestor writes to TelemetryQueue and the Worker reads from it independently (or the Worker writes to EventsQueue and the Executor reads from it independently), neither component needs to know the other exists. This helps with:
 
-- **Scalability**: Adding more Worker instances requires zero changes to the Ingestor — SQS distributes messages automatically via its competing-consumer model. The same applies to the Executor reading from EventsQueue.
-- **Backpressure isolation**: If the Executor slows down (e.g., database write latency spikes), EventsQueue absorbs the backlog. The Worker continues processing at full speed because it writes to a different queue (EventsQueue) than it reads from (TelemetryQueue). A bottleneck in Component C cannot propagate upstream to Component B or A.
-- **Efficiency**: Long polling (`WaitTimeSeconds: 20`) eliminates empty-response API calls — the Worker and Executor block on SQS for up to 20 seconds, receiving messages the instant they arrive. Batch receive (`MaxNumberOfMessages: 10`) and `DeleteMessageBatchCommand` reduce SQS API calls by up to 90% compared to single-message processing, directly lowering cost and network overhead.
-- **Reliability**: SQS retains messages for 24 hours (`MessageRetentionPeriod: 86400`). If a consumer crashes mid-processing, the visibility timeout (30 seconds) expires and the message becomes available to another consumer — no data loss.
+- **Scalability**: e.g. adding more Worker instances in case of overload does not require any code changes to the Ingestor nor the Executor component groups, instead, SQS distributes messages automatically via its emitter-consumer model.
+- **Isolation**: If the Executor slows down (e.g. database write latency spikes), EventsQueue absorbs the backlog. The Worker continues processing at full speed and can keep pushing messages to the queue without having to wait for component C to catch up. A bottleneck in Component C cannot propagate upstream to Component B or A.
+- **Efficiency**: Three SQS optimizations minimize API costs:
+  - *Long polling* (`WaitTimeSeconds: 20`): Instead of calling SQS repeatedly and getting empty responses, each poll waits up to 20 seconds for messages to arrive. If a message appears at second 3, it returns immediately; and if nothing arrives after 20 seconds, it returns empty. This eliminates thousands of wasted API calls per hour.
+  - *Batch receive* (`MaxNumberOfMessages: 10`): Each poll fetches up to 10 messages at once in batch instead of one at a time.
+  - *Batch delete* (`DeleteMessageBatchCommand`): After processing, all messages are deleted in a single API call instead of one call per message.
 
-#### Redis as the Caching Layer (Worker ↔ Thresholds)
+  Combined, batching reduces API calls by ~90%: processing 10 messages requires 1 receive + 1 delete = 2 API calls, versus 10 receives + 10 deletes = 20 calls without batching.
+
+- **Reliability**: SQS retains messages for 24 hours (`MessageRetentionPeriod: 86400`). If a consumer crashes mid-processing, the visibility timeout (30 seconds) expires and the message becomes available to another consumer, ensuring no data loss.
+
+#### Redis as the Caching Layer (Worker retrieving ship thresholds)
 
 The Worker retrieves ship-specific temperature thresholds from Redis on every message. Without caching, this would require three PostgreSQL queries per message (warning, critical, target thresholds). With Redis:
 
-- **Performance**: Cache reads complete in <1ms (local) / ~5ms (AWS), compared to ~10-30ms for a database query. For 400 messages/minute, this saves ~12,000ms of cumulative database query time per minute.
-- **Scalability**: Redis handles ~100,000 reads/second on a single `cache.t3.micro` node. The Worker's throughput is never bottlenecked by threshold lookups, even at 10,000+ ships.
-- **Efficiency**: The cache-aside pattern means thresholds are loaded once during setup (`npm run setup:cache`) and read many times. The Worker falls back to hardcoded defaults in `config.js` if a Redis key is missing, so a cache failure degrades gracefully rather than crashing the pipeline.
+- **Performance**: Cache reads complete 10-30 times faster than a database query. For a large number of messages, this saves exponential amount of cumulative database query time per minute.
+- **Scalability**: Redis has the capability to handle ~100,000 reads/second i.e. 100,000 ship threshold lookups per second on a single `cache.t3.micro` node.
+- **Reliability**: thresholds are loaded once during setup (`npm run setup:cache`) and read many times. The Worker falls back to hardcoded defaults in `config.js` if a Redis key is missing, so a cache failure degrades gracefully rather than crashing the pipeline.
 
 #### PostgreSQL Read/Write Separation (Worker reads, Executor writes)
 
 The Worker and Executor access the same PostgreSQL instance but with different access patterns:
 
-- **Worker (read-only)**: Queries `telemetry_readings` for trend analysis — a `SELECT` over the last 5 minutes of data per ship. This is a lightweight, indexed read that does not compete with write locks.
+- **Worker (read-only)**: Queries `telemetry_readings` for trend analysis, which is a `SELECT` query for all telemetry data per ship over the last 5 minutes. This is a lightweight, indexed read that does not compete with write locks.
 - **Executor (write-heavy)**: Inserts into `telemetry_readings`, `alerts`, and `temperature_actions`. These are append-only writes that benefit from PostgreSQL's sequential write optimization.
 
-This separation means read and write workloads do not contend for the same database resources. The Worker's trend queries use a connection pool capped at 5 connections (`maximumPoolSizeWorker`), leaving the majority of RDS capacity available for the Executor's writes. If write volume grows, the Executor can be scaled horizontally — multiple Executor instances insert independently, and SQS ensures no duplicate processing via visibility timeouts.
+This read/write separation avoids database contention. The Worker holds at most 5 connections for trend queries, reserving the bulk of RDS capacity for the Executor's inserts. Multiple Executors can run in parallel since SQS visibility timeouts prevent the same message from being processed twice.
 
----
+## IV. Technical Implementation
 
-## Cloud Technology Stack
+### a. Code Portability
 
-### Core Components (Required)
-
-| Component | Local Development | AWS Production | Purpose |
-| --------- | ----------------- | -------------- | ------- |
-| **Queuing** | LocalStack SQS | Amazon SQS | Decouples ingestion from processing, enables async workflows |
-| **Caching** | Docker Redis | ElastiCache Redis | Fast threshold lookups, reduces database load |
-| **Database** | Docker PostgreSQL | RDS PostgreSQL | Persistent storage, automated backups |
-| **Compute** | Local Node.js | EC2 Instances | Runs application code |
-
-### Supporting Services
-
-- **VPC**: Network isolation and security
-- **Security Groups**: Firewall rules for resource access
-- **IAM Roles**: Secure authentication without hardcoded credentials
-- **CloudWatch**: Monitoring and logging (optional)
-
----
-
-## Implementation Approaches
-
-### Implementation 1: Monolithic EC2 Deployment
-
-**Architecture**: Single EC2 instance runs all three processes (Ingestor, Worker, Executor)
-
-**Characteristics**:
-
-- Simplest deployment model
-- Single codebase, single deployment unit
-- Cost-effective (~$23/month, free tier eligible for EC2)
-- Limited scalability
-- Good for: Development, testing, small-scale production
-
-**Deployment**:
-
-- One EC2 t3.micro instance (1 vCPU, 1 GB RAM — free tier eligible)
-- PM2 process manager for all three services (256 MB memory limit each)
-- Shared environment configuration
-
-### Implementation 2: Distributed Microservices
-
-**Architecture**: Separate EC2 instances for Ingestor, Worker, and Executor
-
-**Characteristics**:
-
-- Independent scaling per component
-- Better fault isolation
-- Higher availability
-- Cost: ~$50/month
-- Good for: Production, high-traffic scenarios
-
-**Deployment**:
-
-- EC2 instance 1: Ingestor — t3.micro (public subnet)
-- EC2 instance 2: Worker — t3.micro (private subnet)
-- EC2 instance 3: Executor — t3.micro (private subnet)
-- Optional: Application Load Balancer for multiple ingestor instances
-
-### Implementation 3: Serverless (Reference Only)
-
-**Note**: Not implemented due to project constraints (no Lambda/containers allowed)
-
-**Would use**: Lambda functions, EventBridge, API Gateway
-**Benefits**: Pay-per-use, auto-scaling, no server management
-
-### Deployment Strategy Evaluation
-
-The three strategies represent a progression from simplicity to scalability. The key trade-offs are:
-
-| Factor | Monolithic | Distributed | Serverless |
-| ------ | ---------- | ----------- | ---------- |
-| **Cost** | ~$34/mo (~$12 free tier) | ~$52/mo (~$30 free tier) | Pay-per-invocation |
-| **Scalability** | Vertical only (upgrade instance) | Horizontal per component | Automatic |
-| **Fault isolation** | None — one crash affects all | Full — each component independent | Full |
-| **Operational complexity** | Low — one instance, one deploy | Medium — three instances, three deploys | Low — no servers |
-| **Security granularity** | Shared security group | Per-component security groups and IAM | Per-function IAM |
-| **Deployment speed** | Minutes | ~15 minutes (3 instances) | Seconds |
-
-**Why the distributed model is most effective for this system:**
-
-The monolithic deployment shares a single t3.micro (1 vCPU, 1 GB RAM) across all three processes. PM2 limits each to 256 MB, which is sufficient at low scale, but creates a hard ceiling: the Ingestor's HTTP handling, the Worker's Redis/PostgreSQL queries, and the Executor's database writes all compete for the same CPU and memory. When one component spikes, the others degrade. There is no way to scale the Worker independently if TelemetryQueue depth grows — you must upgrade the entire instance.
-
-The distributed model eliminates this coupling. Each component runs on its own EC2 instance with dedicated resources, and each has its own security group scoped to exactly what it needs:
-
-- **Ingestor**: Allows inbound port 3000 (HTTP) + SSH. IAM role: SQS write only.
-- **Worker**: No public inbound. IAM role: SQS read (TelemetryQueue) + SQS write (EventsQueue).
-- **Executor**: No public inbound. IAM role: SQS read (EventsQueue) only.
-
-This means a compromised Ingestor cannot access the database (it has no RDS security group rule), and the Worker/Executor are not reachable from the internet at all. The monolithic model cannot achieve this — all three processes share one security group and one IAM role.
-
-More importantly, the distributed model enables **targeted horizontal scaling**. If the Worker becomes the bottleneck (e.g., trend analysis queries slow down under load), you add Worker instances — SQS automatically distributes messages across competing consumers. The Ingestor and Executor remain untouched. This is not possible in the monolithic model without duplicating the entire stack.
-
-The serverless model would be ideal (zero operational overhead, automatic scaling, per-invocation billing), but is excluded by project constraints. Between the two implemented options, the distributed model is the most effective configuration for a production system because it provides fault isolation, security granularity, and horizontal scalability — the three properties that matter most as fleet size grows from 100 to 10,000 ships.
-
-> **Practical note**: For development and testing, the monolithic deployment is preferred — it costs less, deploys faster, and the single-instance simplicity accelerates iteration. The codebase is identical between both models; only the `.env` file and number of EC2 instances change.
-
----
-
-## Technical Implementation
-
-### Code Portability
-
-The application code is **100% portable** between local and AWS environments through environment-based configuration:
+The application code is portable between local and AWS environments through environment-based configuration:
 
 **Configuration File** (`shared/config.js`):
 
@@ -306,14 +207,14 @@ export const config = {
 };
 ```
 
-**Migration Process**:
+**Migration Process involves the following few steps**:
 
 1. Deploy AWS infrastructure (SQS, RDS, ElastiCache, EC2)
-2. Update `.env` file with AWS endpoints
-3. Run same application code
-4. **Zero code changes required**
+2. Pull the project from GitHub to the EC2 instance(s)
+3. Update `.env` file with AWS endpoints and corresponding production-ready credentials
+4. Run parts or all of the application code through pm2, depending on which architecture we are implementing (monolithic vs. distributed)
 
-### Database Schema
+### b. Database Schema
 
 #### telemetry_readings
 
@@ -342,8 +243,8 @@ threshold     DECIMAL(5,2) NOT NULL
 alert_type    VARCHAR(20) NOT NULL  -- WARNING, CRITICAL, TREND_ANOMALY
 action_taken  VARCHAR(50)
 message       TEXT
-created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 resolved      BOOLEAN DEFAULT FALSE
+created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 resolved_at   TIMESTAMP
 ```
 
@@ -379,193 +280,49 @@ active               BOOLEAN DEFAULT TRUE
 updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ```
 
-### Redis Cache Keys
+### c. Business Rules and Threshold Configuration
 
-```text
-threshold:ship_1:warning   → "-10"
-threshold:ship_1:critical  → "-5"
-threshold:ship_1:target    → "-18"
-```
+Ship-specific temperature thresholds are loaded from `seed/ship-thresholds.json` into both PostgreSQL (`ship_configs` table) and Redis (`threshold:{ship_id}:*` keys) during `npm run setup`. The Worker reads these from Redis at runtime to evaluate each reading:
 
-### Ship Threshold Configuration
+| Alert Type | Condition | Actions |
+| ---------- | --------- | ------- |
+| **NORMAL** | Below warning threshold (default: -18°C) | Log telemetry |
+| **WARNING** | Above warning threshold (default: -10°C) | Log + create alert + notify |
+| **CRITICAL** | Above critical threshold (default: -5°C) | Log + create alert + notify + request temperature adjustment |
+| **TREND_ANOMALY** | Rising temperature trend detected | Log + create alert |
 
-Defines per-ship temperature thresholds loaded into both PostgreSQL (`ship_configs` table) and Redis (`threshold:{ship_id}:*` keys) during setup. These simulate user-customized threshold configurations. In production, users would set their own thresholds per ship.
+**Per-Ship Overrides** (from seed data):
 
-```json
-{
-  "ships": [
-    { "ship_id": "ship_1", "thresholds": { "warning": -10, "critical": -5, "target": -18 } }
-  ],
-  "defaults": { "warning": -10, "critical": -5, "target": -18 }
-}
-```
+| Ship | Critical | Warning | Target |
+| ---- | ------- | -------- | ------ |
+| ship_1 | -5°C | -10°C | -18°C |
+| ship_2 | -3°C | -8°C | -15°C |
+| ship_3 | -7°C | -12°C | -20°C |
 
-### Business Rules
+Redis stores these as `threshold:{ship_id}:warning`, `threshold:{ship_id}:critical`, and `threshold:{ship_id}:target`. If a key is missing, the Worker falls back to hardcoded defaults in `config.js`.
 
-**Temperature Thresholds** (cached in Redis):
+> **Note**: In a future iteration, users would be able to set customized thresholds via an API that writes to PostgreSQL and updates the Redis cache, replacing the seed file entirely.
 
-- **Normal**: Below warning threshold
-- **Warning**: Above -10°C (default) → Generate alert
-- **Critical**: Above -5°C (default) → Generate alert + request adjustment
+## V. Cloud (AWS) Deployments
 
-**Ship-Specific Overrides**:
+### a. Core Components
 
-- Ship 1 (Salmon): Warning -10°C, Critical -5°C, Target -18°C
-- Ship 2 (Tuna): Warning -8°C, Critical -3°C, Target -15°C
-- Ship 3 (Lobster): Warning -12°C, Critical -7°C, Target -20°C
+| Component | Local Development | AWS Production | Purpose |
+| --------- | ----------------- | -------------- | ------- |
+| **Queuing** | LocalStack SQS | Amazon SQS | Decouples ingestion from processing, enables async workflows |
+| **Caching** | Docker Redis | ElastiCache Redis | Fast threshold lookups, reduces database load |
+| **Database** | Docker PostgreSQL | RDS PostgreSQL | Persistent storage, automated backups |
+| **Compute** | Local Node.js | EC2 Instances | Runs application code |
 
-> **Design Note**: These thresholds are loaded from `seed/ship-thresholds.json` into both PostgreSQL (`ship_configs` table) and Redis (`threshold:{ship_id}:*` keys) during `npm run setup`. This simulates user-customized configurations. In a future iteration, users would set thresholds via an API that writes to PostgreSQL and updates the Redis cache, replacing the seed file entirely.
+### b. Supporting Services
 
----
+- **VPC**: Network isolation and security
+- **Security Groups**: Firewall rules for resource access
+- **IAM Roles**: Secure authentication without hardcoded credentials
 
-## Scalability Analysis
+### c. Deployment Strategy: Process Management (PM2)
 
-### How Component Interactions Enable Scaling
-
-Each component scales independently because the interactions between them are mediated by managed services, not direct connections.
-
-**Ingestor (Component A)** — The Ingestor's only downstream interaction is a `SendMessageCommand` to TelemetryQueue. It does not connect to Redis, PostgreSQL, or any other component. This means its throughput is bounded only by HTTP request handling and SQS write latency (~20ms per message on AWS). To scale, add Ingestor instances behind an Application Load Balancer — each writes to the same TelemetryQueue, and SQS handles the fan-in. No changes to the Worker or Executor are needed.
-
-**Worker (Component B)** — The Worker has three interactions: it reads from TelemetryQueue (SQS), reads thresholds from Redis, and reads trend data from PostgreSQL. Because SQS supports competing consumers, adding Worker instances automatically distributes the message load — each Worker receives a different subset of messages via SQS's visibility timeout mechanism. Redis handles ~100,000 reads/second on a single `cache.t3.micro`, so threshold lookups never become the bottleneck. The only scaling constraint is the PostgreSQL trend query: each Worker reads the last 5 minutes of telemetry per ship. With a connection pool capped at 5 connections per Worker, adding Workers increases read load on RDS. At high scale, this is mitigated by adding a read replica — the Worker's queries are read-only and can be directed to a replica without any code changes (just update `DATABASE_URL` in the Worker's `.env`).
-
-**Executor (Component C)** — The Executor reads from EventsQueue and writes to PostgreSQL. Like the Worker, multiple Executor instances can poll the same queue — SQS ensures each message is processed exactly once (within the 30-second visibility timeout window). The scaling bottleneck is database write IOPS. RDS `db.t4g.micro` supports ~1,000 writes/second; upgrading to `db.r6g.large` pushes this to ~10,000. The Executor's writes are append-only inserts (no updates, no locks), so multiple Executors can write concurrently without contention.
-
-### System-Wide Capacity
-
-| Setup | Ships | Readings/min | Readings/day |
-| ----- | ----- | ------------ | ------------ |
-| Single EC2 (monolithic) | ~100 | ~400 | ~576,000 |
-| 3 EC2s (distributed) | ~500 | ~2,000 | ~2.9M |
-| Scaled (multi-instance per component) | ~10,000 | ~40,000 | ~57.6M |
-
-The jump from monolithic to distributed is not just about raw throughput — it eliminates the shared-resource ceiling. In the monolithic model, all three processes compete for 1 vCPU and 1 GB RAM. A CPU spike in the Worker's trend analysis directly degrades the Ingestor's HTTP response time. In the distributed model, each component has dedicated resources, and the only shared dependency is the RDS instance — which can itself be scaled independently via instance upgrades or read replicas.
-
----
-
-## Performance Evaluation
-
-### Latency Metrics
-
-| Operation | Local (Docker) | AWS (Single Region) |
-| --------- | -------------- | ------------------- |
-| Ingest telemetry | <10ms | ~50ms |
-| Queue message | <5ms | ~20ms |
-| Process message | ~50ms | ~100ms |
-| Database write | ~10ms | ~30ms |
-| Cache read | <1ms | ~5ms |
-| **End-to-end** | **~75ms** | **~200ms** |
-
-### Throughput Metrics
-
-| Metric | Local | AWS (t3.small) | AWS (Scaled) |
-| ------ | ----- | -------------- | ------------ |
-| Requests/second | ~500 | ~200 | ~2000 |
-| Messages/second | ~500 | ~200 | ~2000 |
-| DB writes/second | ~100 | ~50 | ~500 |
-
----
-
-## Cost Analysis
-
-### Monthly Operating Costs (AWS us-east-1)
-
-#### Implementation 1: Monolithic
-
-```text
-EC2 t3.micro (730 hrs)        $8.50   (free tier eligible)
-RDS db.t4g.micro (730 hrs)    $12.50  (free tier eligible)
-ElastiCache t3.micro          $12.00
-SQS (1M requests)              $0.40
-Data Transfer (10GB)           $0.90
-─────────────────────────────────────
-Total                         ~$34/month  (~$12 with free tier)
-```
-
-#### Implementation 2: Distributed
-
-```text
-EC2 t3.micro × 3              $25.50  (1 instance free tier)
-RDS db.t4g.micro              $12.50  (free tier eligible)
-ElastiCache t3.micro          $12.00
-SQS (2M requests, 2 queues)    $0.80
-Data Transfer (10GB)           $0.90
-─────────────────────────────────────
-Total                         ~$52/month  (~$30 with free tier)
-```
-
-**Cost Optimizations Applied**:
-
-- **t3.micro instances** instead of t3.small — 1 vCPU, 1 GB RAM is sufficient for lightweight Node.js processes
-- **SQS batch processing** — receive up to 10 messages per poll, batch deletes; reduces API calls ~90%
-- **PM2 memory limits** — 256 MB per process; all 3 fit comfortably on a t3.micro
-- **AWS Free Tier** (first 12 months): EC2 t3.micro 750 hrs + RDS db.t4g.micro 750 hrs free
-- **Stop EC2 when not in use**: saves ~$8.50/month per instance
-- **Reserved Instances** (1-year commitment): save ~30% on EC2
-
----
-
-## Security Implementation
-
-### Network Security
-
-- **VPC Isolation**: Resources in private subnets
-- **Security Groups**: Least-privilege firewall rules
-- **No Public Access**: RDS and ElastiCache not internet-accessible
-
-```text
-VPC (10.0.0.0/16)
-├─ Public Subnet (10.0.1.0/24)
-│  └─ EC2 Ingestor ← Internet Gateway
-│
-└─ Private Subnet (10.0.11.0/24)
-   ├─ EC2 Worker
-   ├─ EC2 Executor
-   ├─ RDS PostgreSQL
-   └─ ElastiCache Redis
-```
-
-### Authentication & Authorization
-
-- **IAM Roles**: EC2 instances use roles, not access keys
-- **No Hardcoded Credentials**: All secrets in environment variables
-- **Principle of Least Privilege**: Minimal permissions granted
-
-### Data Security
-
-- **Encryption in Transit**: HTTPS for API, TLS for database
-- **Encryption at Rest**: RDS encryption enabled
-- **Backup & Recovery**: Automated RDS backups (7-day retention)
-
----
-
-## Deployment Strategy
-
-### Development Workflow
-
-#### Phase 1: Local Development
-
-- Use Docker Compose for infrastructure
-- Fast iteration cycles (no cloud costs)
-- LocalStack simulates AWS services
-- Complete feature development and testing
-
-#### Phase 2: AWS Deployment
-
-- Deploy infrastructure via CloudFormation or AWS Console
-- Update environment variables only
-- Same application code runs in cloud
-- Production testing and validation
-
-#### Phase 3: Continuous Deployment
-
-- Git-based workflow
-- Push to GitHub triggers deployment
-- Automated testing before deployment
-- Zero-downtime updates with PM2
-
-### Process Management
-
-**PM2 Ecosystem Config** (`deploy/pm2-ecosystem.config.js`):
+**PM2 Ecosystem Config** (`deploy/pm2-ecosystem.config.cjs`):
 
 - Defines all three services (ingestor, worker, executor)
 - 256 MB memory limit per process
@@ -573,219 +330,330 @@ VPC (10.0.0.0/16)
 - Centralized log files with timestamps
 - Startup script for boot persistence
 
----
+## VI. Implementations
 
-## Testing and Validation
+### a. Implementation 1: Monolithic EC2 Deployment
 
-### Functional Testing
+**Architecture**: Single EC2 instance runs all three processes (Ingestor, Worker, Executor)
 
-**Component A (Ingestor)**:
+**Characteristics**:
 
-- Accepts valid telemetry data
-- Rejects invalid data (missing fields)
-- Validates temperature is numeric
-- Queues messages to SQS
-- Returns messageId on success
-- Handles batch requests
+- Simplest deployment model
+- Single codebase, single deployment unit
+- Cost-effective (only 1 EC2 instance, free tier eligible)
+- Limited scalability (vertical only, cannot scale components independently)
 
-**Component B (Worker)**:
+**Deployment**:
 
-- Polls TelemetryQueue successfully
-- Retrieves thresholds from Redis
-- Evaluates business rules correctly
-- Determines NORMAL, WARNING, CRITICAL alert types
-- Checks temperature trends via PostgreSQL (read-only)
-- Publishes TREND_ANOMALY events when rising trend detected
-- Publishes enriched events to EventsQueue
-- Deletes processed messages from TelemetryQueue
+- One EC2 t3.micro instance (1 vCPU, 1 GB RAM, free tier eligible)
+- PM2 process manager for all three services (256 MB memory limit each)
+- Shared environment configuration
 
-**Component C (Executor)**:
+### b. Implementation 2: Distributed Microservices
 
-- Polls EventsQueue successfully
-- Stores telemetry readings in PostgreSQL
-- Creates alerts with metadata
-- Requests temperature adjustments for CRITICAL events
-- Stores trend anomaly alerts from Component B
-- Sends webhook notifications
-- Deletes processed messages from EventsQueue
+**Architecture**: Separate EC2 instances for Ingestor, Worker, and Executor
 
-### Integration Testing
+**Characteristics**:
 
-**End-to-End Flow**:
+- Independent scaling per component
+- Better fault isolation
+- More expensive (3 EC2 instancese)
+- Higher availability
 
-1. Simulator sends telemetry → Ingestor (Component A)
-2. Ingestor validates → Queues to TelemetryQueue (SQS)
-3. Worker polls TelemetryQueue → Receives message (Component B)
-4. Worker gets thresholds → Redis cache
-5. Worker evaluates rules → Determines alert type
-6. Worker checks temperature trend → PostgreSQL (read-only)
-7. Worker publishes event(s) → EventsQueue (SQS)
-8. Executor polls EventsQueue → Receives event (Component C)
-9. Executor stores data → PostgreSQL
-10. Executor creates alerts → PostgreSQL
-11. Executor sends notification → Webhook
+**Deployment**:
 
-**Result**: All three components interact correctly via two SQS queues
+- EC2 instance 1: Ingestor, t3.micro (public subnet to retrieve telemetry data from ships)
+- EC2 instance 2: Worker, t3.micro (private subnet)
+- EC2 instance 3: Executor, t3.micro (private subnet)
 
-### Performance Testing
+### c. Implementation 3: Serverless Migration
 
-**Load Test Results** (100 ships, 1 reading/15s):
+**Architecture**: Migrate from EC2 to Lambda functions for each component
 
-- Ingestor: 400 requests/minute handled successfully
-- Queue: No message loss
-- Worker: Processes all messages within 30 seconds
-- Database: No performance degradation
-- Cache: <5ms response time
+**Characteristics**:
 
----
+- **Event-driven execution**: components only run when events are received, rather than polling continuously as in Implementation 2
+- **Zero idle cost**: no computational charges when no telemetry is flowing, unlike EC2 which bills by the hour regardless of load
+- **No infrastructure management**: process lifecycle, scaling, patching, and availability are entirely delegated to the cloud provider
+- **No process management**: PM2, SSH access, and manual restarts are eliminated
 
-## Lessons Learned
+> **Note**: Not implemented due to out of current project scopes.
 
-### Technical Insights
+### d. Cost optimizations for Cloud Deployment
 
-#### 1. Importance of Abstraction
+- **t3.micro instances** instead of t3.small: 1 vCPU, 1 GB RAM is sufficient for lightweight Node.js processes
+- **SQS batch processing**: long polling + batch receive/delete to optimize number of API calls
+- **PM2 memory limits**: 256 MB per process; all 3 fit comfortably on a t3.micro when deployed with the first implementation
 
-- Environment-based configuration enables portability
-- Same code runs locally and in cloud
-- Reduces deployment complexity
+### e. Deployment Strategy Evaluation
 
-#### 2. Managed Services Benefits
+The three strategies represent a progression from simplicity to scalability. The key trade-offs are:
 
-- SQS eliminates need for custom queue implementation
-- RDS provides automated backups and high availability
-- ElastiCache offers sub-millisecond latency
+| Factor | Monolithic | Distributed | Serverless |
+| ------ | ---------- | ----------- | ---------- |
+| **Cost** | Lowest cost | Medium cost | Pay-per-invocation |
+| **Scalability** | Vertical only (upgrade instance) | Horizontal per component | Automatic |
+| **Fault isolation** | None: one crash affects all | Full: each component independent | Full |
+| **Operational complexity** | Low: one instance, one deploy | Medium: three instances, three deploys | Low: no servers |
+| **Security granularity** | Shared security group | Per-component security groups and IAM | Per-function IAM |
+| **Deployment speed** | Fast | Medium | Very Fast |
 
-#### 3. Asynchronous Processing
+For development and testing, the monolithic deployment was preferred due to its simplicity and lower cost, which saves on unecessary expenses and allows faster deployment as well as accelerated iteration.
 
-- Queuing decouples components
-- Enables independent scaling
-- Improves system resilience
+The distributed model for this project is overall the most scalable and suitable for production due to its ability to provide fault isolation, per-component security, and horizontal scalability by scaling each component independently via adding more EC2 instances. The serverless model would have beeen a better architecture, however, nevertheless it is temporarily excluded by project constraints.
 
-#### 4. Caching Strategy
+## VII. Scalability analysis
 
-- Redis reduces database load by 80%
-- Ship-specific thresholds cached for fast access
-- Cache-aside pattern works well for this use case
+Each component scales independently because all inter-component communication is mediated by SQS, Redis, and PostgreSQL, not direct communications. The scaling strategy and bottleneck for each component differs:
 
-### Operational Insights
+**Ingestor**: The Ingestor only accepts HTTP requests and writes to SQS. To handle more traffic, we could add more Ingestor EC2 instances behind an Application Load Balancer (ALB). Each instance writes to the same TelemetryQueue, so the Worker and Executor require no changes. The bottleneck is HTTP throughput on a single instance (connections, bandwidth).
 
-#### 1. Cost Management
+**Worker**: The Worker polls TelemetryQueue, reads thresholds from Redis, and queries PostgreSQL for temperature trends. To handle a growing queue, add more Worker instances. SQS automatically distributes messages across consumers via its visibility timeout (once one Worker picks up a message, it becomes invisible to others for 30 seconds). The bottleneck is PostgreSQL trend queries, since each Worker opens up to 5 database connections. At high scale, this is mitigated by pointing Workers at an RDS read replica, which requires no code changes (just need to update `DATABASE_URL` environment variable).
 
-- Free tier significantly reduces initial costs
-- Stopping EC2 when not in use saves money
-- Monitoring prevents unexpected charges
+**Executor**: The Executor polls EventsQueue and writes telemetry, alerts, and actions to PostgreSQL. Like the Worker, adding more Executor instances distributes the load automatically via SQS. The bottleneck is database write throughput. Since all writes are append-only inserts (no updates or row locks), multiple Executors can write concurrently without contention. At higher scale, upgrading the RDS instance class increases write IOPS.
 
-#### 2. Security Best Practices
+## VIII. Deployment Verification (Implementation 1: Monolithic EC2)
 
-- IAM roles eliminate credential management
-- Security groups provide defense in depth
-- Private subnets protect sensitive resources
+The following screenshots demonstrate the system running on AWS, confirming end-to-end functionality from HTTP ingestion through SQS queuing to PostgreSQL storage.
 
-#### 3. Monitoring Importance
+### 1. Health Check: Ingestor Reachable from Public Internet
 
-- PM2 logs essential for debugging
-- CloudWatch metrics show system health
-- Alerts prevent issues from escalating
+Command run from local machine:
 
----
+```bash
+curl http://<EC2_PUBLIC_IP>:3000/health
+```
 
-## Future Enhancements
+Response: `{"status":"healthy","service":"ingestor"}`
 
-### Short-Term (Next 3 Months)
+This confirms the Ingestor (Component A) is running on EC2 and publicly accessible on port 3000.
 
-#### 1. Notification System
+![Health Check](screenshots/01-health-check.png)
+
+### 2. PM2 Process Status: All Three Services Running
+
+Command run on EC2:
+
+```bash
+pm2 status
+```
+
+Shows `ingestor`, `worker`, and `executor` all in `online` status, managed by PM2 on a single `t3.micro` instance.
+
+![PM2 Status](screenshots/02-pm2-status.png)
+
+### 3. Send Test Telemetry: End-to-End Pipeline Trigger
+
+Command run from EC2:
+
+```bash
+curl -X POST http://<EC2_PUBLIC_IP>:3000/telemetry \
+  -H "Content-Type: application/json" \
+  -d '{"ship_id":"ship_1","temp":-12.5,"timestamp":"2026-02-11T05:00:00Z"}'
+```
+
+Response includes `messageId`, confirming the Ingestor validated the payload and queued it to SQS.
+
+![Send Telemetry](screenshots/03-send-telemetry.png)
+
+### 4. PM2 Logs: Message Flow Through Pipeline
+
+Command run on EC2:
+
+```bash
+pm2 logs --lines 30
+```
+
+Logs show the complete message flow:
+
+1. **Ingestor**: Received POST, validated, queued to TelemetryQueue
+2. **Worker**: Polled TelemetryQueue, retrieved thresholds from Redis, evaluated rules (NORMAL), published event to EventsQueue
+3. **Executor**: Polled EventsQueue, stored telemetry reading in PostgreSQL, batch-deleted message
+
+![PM2 Logs](screenshots/04-pm2-logs.png)
+
+### 5. Database Query: Telemetry Stored in RDS PostgreSQL
+
+Command run on EC2:
+
+```bash
+psql -h <RDS_ENDPOINT> -U postgres -d ship_db \
+  -c "SELECT * FROM telemetry_readings ORDER BY created_at DESC LIMIT 10;"
+```
+
+Shows the stored telemetry row(s) with `ship_id`, `sensor_id`, `temperature`, and `timestamp`, proving data traversed the full pipeline (HTTP → SQS → Worker → SQS → Executor → PostgreSQL).
+
+![Database Telemetry](screenshots/05-db-telemetry.png)
+
+### 6. Alerts Table: Business Rule Output Stored
+
+A critical temperature reading (`-1°C`, above the `-5°C` critical threshold) was sent to trigger the alert pipeline. Command run on EC2:
+
+```bash
+psql -h <RDS_ENDPOINT> -U postgres -d ship_db \
+  -c "SELECT * FROM alerts ORDER BY created_at DESC LIMIT 10;"
+```
+
+Shows two alerts generated by the Worker's business rule evaluation:
+
+1. **NOTIFY_CRITICAL**: alert created with message `-1 > -5 degrees threshold`
+2. **ADJUST_TEMPERATURE**: automatic temperature correction requested
+
+This confirms the Worker correctly identified the CRITICAL condition, published two action events to EventsQueue, and the Executor persisted both alerts to PostgreSQL.
+
+![Database Alerts](screenshots/06-db-alerts.png)
+
+## IX. Deployment Verification (Implementation 2: Distributed EC2)
+
+The following screenshots demonstrate the system running across **three separate EC2 instances**, each running a single component. The same SQS queues, RDS PostgreSQL, and ElastiCache Redis from Implementation 1 are reused; only the compute layer changed.
+
+### 1. Infrastructure Reuse
+
+| Resource | Reused from Implementation 1 |
+| -------- | ---------------------------- |
+| SQS (ShipTelemetryQueue, AlertEventsQueue) | Same queues |
+| RDS PostgreSQL | Same database and tables |
+| ElastiCache Redis | Same cache and thresholds |
+| IAM Role | Same role attached to all 3 instances |
+| Security Groups (RDS/ElastiCache) | Shared security group |
+| Code | Identical codebase, identical `.env` |
+| Original EC2 | Reused, now will only deploy the Ingestor |
+
+#### a. RDS setup
+
+![RDS Setup](screenshots/06a-rds-setup.png)
+![RDS Setup](screenshots/06a-rds-setup-2.png)
+
+#### b. Redis setup
+
+![Redis Setup](screenshots/06b-redis-setup.png)
+
+#### c. Queues setup
+
+![Queues Setup](screenshots/06c-queues-setup.png)
+![Queues Setup](screenshots/06c-alertqueue.png)
+
+### 2. Instance Layout
+
+| Instance | Role | Process Running | Public Access |
+| -------- | ---- | --------------- | ------------- |
+| EC2 #1 (original) | Ingestor | `pm2 start ingestor/ingestor.js` | Port 3000 open |
+| EC2 #2 (new) | Worker | `pm2 start worker/worker.js` | SSH only |
+| EC2 #3 (new) | Executor | `pm2 start executor/executor.js` | SSH only |
+
+![Instance Layout](screenshots/07-ec2-instances.png)
+![Instance Layout](screenshots/07-ec2-instances-2.png)
+
+### 3. PM2 Status: Each Instance Runs One Process
+
+Each EC2 instance runs only its designated component via PM2:
+
+- **Ingestor instance**: `pm2 status` shows only `ingestor` online
+- **Worker instance**: `pm2 status` shows only `worker` online
+- **Executor instance**: `pm2 status` shows only `executor` online
+
+![Distributed PM2 Status](screenshots/07-distributed-pm2-status-1.png)
+![Distributed PM2 Status](screenshots/07-distributed-pm2-status-2.png)
+![Distributed PM2 Status](screenshots/07-distributed-pm2-status-3.png)
+
+### 4. Send Test Telemetry: Cross-Instance Pipeline
+
+Command run from local machine to the Ingestor instance:
+
+```bash
+curl -X POST http://<INGESTOR_EC2_IP>:3000/telemetry \
+  -H "Content-Type: application/json" \
+  -d '{"ship_id":"ship_1","temp":-1,"timestamp":"2026-02-11T12:00:00Z"}'
+```
+
+Response includes `messageId`, confirming the Ingestor queued the message to SQS.
+
+![Distributed Send Telemetry](screenshots/08-distributed-send-telemetry.png)
+
+### 5. Distributed Logs: Message Flow Across Instances
+
+Logs from each instance confirm the message traversed the full pipeline across three separate EC2 instances:
+
+1. **Ingestor instance** (`pm2 logs`): Received POST, validated, queued to TelemetryQueue
+2. **Worker instance** (`pm2 logs`): Polled TelemetryQueue, retrieved thresholds from Redis, evaluated rules (CRITICAL), published events to EventsQueue
+3. **Executor instance** (`pm2 logs`): Polled EventsQueue, stored telemetry and alerts in PostgreSQL
+
+![Distributed Logs](screenshots/09-distributed-logs-1.png)
+![Distributed Logs](screenshots/09-distributed-logs-2.png)
+![Distributed Logs](screenshots/09-distributed-logs-3.png)
+
+### 6. Database Query: Data Stored via Distributed Pipeline
+
+Command run on Executor instance:
+
+```bash
+psql -h <RDS_ENDPOINT> -U postgres -d ship_db \
+  -c "SELECT * FROM telemetry_readings ORDER BY created_at DESC LIMIT 10;"
+```
+
+Shows the telemetry row stored by the Executor running on its own EC2 instance, confirming the distributed pipeline works end-to-end.
+
+![Distributed Database Telemetry](screenshots/10-distributed-db-telemetry.png)
+
+## X. Future Enhancements
+
+### 1. Notification System
 
 - Email alerts via Amazon SES
 - SMS notifications via Amazon SNS
 - Webhook integrations for third-party systems
 
-#### 2. Monitoring Dashboard
+### 2. Monitoring Dashboard
 
 - Real-time temperature visualization
 - Alert history and trends
 - Fleet-wide overview
 
-#### 3. API Enhancements
+### 3. API Enhancements
 
 - Authentication (API keys or JWT)
 - Rate limiting
 - API documentation (Swagger/OpenAPI)
 
-### Medium-Term (3-6 Months)
-
-#### 4. Advanced Analytics
+### 4. Advanced Analytics
 
 - Temperature trend prediction
 - Anomaly detection using machine learning
 - Route optimization based on historical data
 
-#### 5. High Availability
+### 5. High Availability
 
 - Multi-AZ RDS deployment
 - ElastiCache replication
 - Auto-scaling groups for EC2
 
-#### 6. CI/CD Pipeline
+### 6. CI/CD Pipeline
 
 - GitHub Actions for automated deployment
 - Automated testing on pull requests
 - Blue-green deployments
 
-### Long-Term (6-12 Months)
-
-#### 7. Multi-Region Deployment
+### 7. Multi-Region Deployment
 
 - Deploy in multiple AWS regions
 - Route53 for global load balancing
 - Cross-region replication for disaster recovery
 
-#### 8. Serverless Migration (if constraints removed)
+### 8. Serverless Migration (if constraints removed)
 
 - Lambda functions for worker
 - API Gateway for ingestor
 - DynamoDB for high-throughput storage
 
-#### 9. IoT Core Integration
+### 9. IoT Core Integration
 
 - Direct device-to-cloud communication
 - Device shadows for offline support
 - Fleet provisioning and management
 
----
+## XI. Appendix
 
-## Conclusion
-
-This project successfully demonstrates the design and implementation of a cloud-native distributed application that addresses a real-world business problem. By leveraging AWS managed services (SQS, ElastiCache, RDS) and EC2 compute, the system achieves:
-
-**Scalability**: Handles 100-10,000 ships with horizontal scaling
-**Reliability**: Asynchronous processing prevents data loss
-**Performance**: Sub-second response times for critical operations
-**Cost-Effectiveness**: ~$34-52/month for production deployment (~$12-30 with free tier)
-**Maintainability**: Clean architecture with separated concerns
-**Portability**: Same code runs locally and in cloud
-
-The three-component architecture (Ingestor → Worker → Executor) connected via two SQS queues demonstrates key distributed systems concepts including:
-
-- Message queuing for decoupling (two SQS queues in pipeline)
-- Caching for performance optimization (Redis for threshold lookups)
-- Persistent storage for data durability (PostgreSQL via Executor)
-- Horizontal scaling for increased capacity
-
-The project meets all course requirements:
-
-- Distributed application with 3+ components
-- Uses messaging (SQS), caching (Redis), and database (PostgreSQL)
-- Deployed on cloud (AWS)
-- Executes real business process (temperature monitoring)
-- No prohibited technologies (no Lambda, containers, K8s, service mesh)
-
-**Key Takeaway**: Cloud-native architecture enables building scalable, reliable systems that can grow from prototype to production without major code rewrites. The combination of managed services and proper abstraction creates a foundation for long-term success.
-
----
-
-## Appendix
-
-### A. Repository Structure
+### a. Repository Structure
 
 ```text
 cloud-native-project-one/
@@ -801,13 +669,12 @@ cloud-native-project-one/
 └── README.md              # Project overview
 ```
 
-### B. Key Files
+### b. Key Files
 
-- `docs/AWS_MIGRATION_GUIDE.md`: Complete migration instructions (local → AWS)
 - `docs/PROJECT_REPORT.md`: This report
-- `deploy/pm2-ecosystem.config.js`: PM2 process management config
+- `deploy/pm2-ecosystem.config.cjs`: PM2 process management config
 
-### C. Technologies Used
+### c. Technologies Used
 
 - **Runtime**: Node.js 18+
 - **Framework**: Express.js

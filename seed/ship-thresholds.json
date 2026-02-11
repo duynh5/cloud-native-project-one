@@ -3,24 +3,24 @@
     {
       "ship_id": "ship_1",
       "thresholds": {
-        "warning": -10,
         "critical": -5,
+        "warning": -10,
         "target": -18
       }
     },
     {
       "ship_id": "ship_2",
       "thresholds": {
-        "warning": -8,
         "critical": -3,
+        "warning": -8,
         "target": -15
       }
     },
     {
       "ship_id": "ship_3",
       "thresholds": {
-        "warning": -12,
         "critical": -7,
+        "warning": -12,
         "target": -20
       }
     }

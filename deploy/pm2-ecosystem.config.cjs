@@ -4,14 +4,14 @@
  * This file is used by PM2 to manage the application processes,
  *
  * Usage:
- *   pm2 start deploy/pm2-ecosystem.config.js  -> start all 3 services
- *   pm2 start deploy/pm2-ecosystem.config.js --only ingestor  -> start only ingestor
- *   pm2 start deploy/pm2-ecosystem.config.js --only worker  -> start only worker
- *   pm2 start deploy/pm2-ecosystem.config.js --only executor  -> start only executor
+ *   pm2 start deploy/pm2-ecosystem.config.cjs  -> start all 3 services
+ *   pm2 start deploy/pm2-ecosystem.config.cjs --only ingestor  -> start only ingestor
+ *   pm2 start deploy/pm2-ecosystem.config.cjs --only worker  -> start only worker
+ *   pm2 start deploy/pm2-ecosystem.config.cjs --only executor  -> start only executor
  *
- *   pm2 restart deploy/pm2-ecosystem.config.js  -> restart all 3 services
- *   pm2 stop deploy/pm2-ecosystem.config.js  -> stop all 3 services
- *   pm2 delete deploy/pm2-ecosystem.config.js  -> delete all 3 services
+ *   pm2 restart deploy/pm2-ecosystem.config.cjs  -> restart all 3 services
+ *   pm2 stop deploy/pm2-ecosystem.config.cjs  -> stop all 3 services
+ *   pm2 delete deploy/pm2-ecosystem.config.cjs  -> delete all 3 services
  */
 
 module.exports = {
